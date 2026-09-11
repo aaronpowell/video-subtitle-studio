@@ -1,0 +1,20 @@
+services:
+  subtitle-studio:
+    image: ghcr.io/aaronpowell/video-subtitle-studio:latest
+    build:
+      context: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      MOONSHINE_VOICE_CACHE: /models
+      VSS_MOONSHINE_LANGUAGE: en
+      VSS_EBU_FRAME_RATE: "25"
+      VSS_MAX_UPLOAD_MB: "2048"
+    volumes:
+      - subtitle-data:/data
+      - moonshine-models:/models
+
+volumes:
+  subtitle-data:
+  moonshine-models:
