@@ -28,6 +28,7 @@ let selectedJobId = null;
 let currentProject = null;
 let previewTrack = null;
 let projectRequestVersion = 0;
+let dragDepth = 0;
 
 async function api(path, options = {}) {
   const response = await fetch(path, options);
@@ -309,6 +310,54 @@ elements.uploadForm.addEventListener("submit", async (event) => {
 elements.refreshJobs.addEventListener("click", loadJobs);
 elements.saveCaptions.addEventListener("click", saveCaptions);
 elements.addCaption.addEventListener("click", addCaption);
+
+function isMp4(file) {
+  return file && (file.name.toLowerCase().endsWith(".mp4") || file.type === "video/mp4");
+}
+
+function setDragActive(active) {
+  document.body.classList.toggle("drag-active", active);
+}
+
+document.addEventListener("dragenter", (event) => {
+  event.preventDefault();
+  dragDepth += 1;
+  setDragActive(true);
+});
+
+document.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "copy";
+  }
+});
+
+document.addEventListener("dragleave", (event) => {
+  event.preventDefault();
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) {
+    setDragActive(false);
+  }
+});
+
+document.addEventListener("drop", (event) => {
+  event.preventDefault();
+  dragDepth = 0;
+  setDragActive(false);
+  const [file] = event.dataTransfer?.files || [];
+  if (!file) {
+    return;
+  }
+  if (!isMp4(file)) {
+    setMessage(elements.uploadMessage, "Drop an MP4 video file.", true);
+    return;
+  }
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  elements.videoFile.files = transfer.files;
+  setMessage(elements.uploadMessage, `${file.name} selected. Uploading...`);
+  elements.uploadForm.requestSubmit();
+});
 
 checkHealth();
 loadJobs();
