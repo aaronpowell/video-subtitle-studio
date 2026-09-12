@@ -77,7 +77,8 @@ function renderJobs() {
     item.querySelector(".job-name").textContent = job.source_filename;
     item.querySelector(".job-status").textContent = job.status.replace("_", " ");
     item.querySelector(".job-error").textContent = job.error || "";
-    item.addEventListener("click", () => selectJob(job));
+    item.querySelector(".job-open").addEventListener("click", () => selectJob(job));
+    item.querySelector(".delete-job").addEventListener("click", () => deleteJob(job));
     elements.jobs.append(item);
   }
 }
@@ -91,6 +92,16 @@ async function loadJobs() {
       const selected = jobs.find((job) => job.id === selectedJobId);
       if (selected?.status === "completed" && currentProject === null) {
         await loadProject(selected.id);
+      } else if (!selected) {
+        selectedJobId = null;
+        currentProject = null;
+        projectRequestVersion += 1;
+        elements.editor.hidden = true;
+        elements.emptyState.hidden = false;
+        elements.emptyState.querySelector("h2").textContent = "Select a completed project";
+        elements.emptyState.querySelector("p").textContent =
+          "The video preview and caption editor will appear here.";
+        renderJobs();
       }
     }
   } catch (error) {
@@ -236,6 +247,35 @@ async function saveCaptions() {
     setMessage(elements.editorMessage, error.message, true);
   } finally {
     elements.saveCaptions.disabled = false;
+  }
+}
+
+async function deleteJob(job) {
+  const activeStatuses = new Set(["uploading", "extracting", "transcribing"]);
+  if (activeStatuses.has(job.status)) {
+    setMessage(elements.uploadMessage, "Wait for active processing to finish before deleting.", true);
+    return;
+  }
+  if (!confirm(`Delete "${job.source_filename}" and all generated captions?`)) {
+    return;
+  }
+  try {
+    await api(`/api/jobs/${job.id}`, { method: "DELETE" });
+    if (selectedJobId === job.id) {
+      selectedJobId = null;
+      currentProject = null;
+      projectRequestVersion += 1;
+      elements.preview.removeAttribute("src");
+      elements.editor.hidden = true;
+      elements.emptyState.hidden = false;
+      elements.emptyState.querySelector("h2").textContent = "Project deleted";
+      elements.emptyState.querySelector("p").textContent =
+        "Select another completed project or upload a new MP4.";
+    }
+    setMessage(elements.uploadMessage, "Project deleted.");
+    await loadJobs();
+  } catch (error) {
+    setMessage(elements.uploadMessage, error.message, true);
   }
 }
 

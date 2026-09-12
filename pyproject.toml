@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "video-subtitle-studio"
-version = "0.1.1"
+version = "0.1.2"
 description = "Self-hosted MP4 transcription, caption editing, and broadcast subtitle export"
 readme = "README.md"
 requires-python = ">=3.11"

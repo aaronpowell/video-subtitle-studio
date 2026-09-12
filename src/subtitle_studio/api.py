@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
+from . import __version__
 from .config import Settings
 from .exporters import export_ebu_stl, export_srt, export_webvtt
 from .models import CaptionProject, CaptionUpdate, Job, JobStatus, utc_now
@@ -107,7 +108,7 @@ def create_app(
 
     app = FastAPI(
         title="Video Subtitle Studio",
-        version="0.1.0",
+        version=__version__,
         lifespan=lifespan,
         docs_url="/api/docs",
         redoc_url=None,
@@ -195,6 +196,24 @@ def create_app(
             return storage.get_job(job_id)
         except (JobNotFoundError, ValueError) as error:
             raise HTTPException(status_code=404, detail="Job not found") from error
+
+    @app.delete("/api/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_job(job_id: str) -> Response:
+        try:
+            job = storage.get_job(job_id)
+            if job.status in {
+                JobStatus.UPLOADING,
+                JobStatus.EXTRACTING,
+                JobStatus.TRANSCRIBING,
+            }:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot delete a project while it is actively processing",
+                )
+            storage.delete_job(job_id)
+        except (JobNotFoundError, ValueError) as error:
+            raise HTTPException(status_code=404, detail="Job not found") from error
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.get("/api/jobs/{job_id}/captions", response_model=CaptionProject)
     def get_captions(job_id: str) -> CaptionProject:

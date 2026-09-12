@@ -1,4 +1,5 @@
 import json
+import shutil
 import sqlite3
 import threading
 from pathlib import Path
@@ -83,12 +84,15 @@ class Storage:
     def delete_unfinished_job(self, job_id: str) -> None:
         with self._write_lock, self._connect() as connection:
             connection.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
-        job_dir = self.job_dir(job_id)
-        if job_dir.exists():
-            for child in job_dir.iterdir():
-                if child.is_file():
-                    child.unlink()
-            job_dir.rmdir()
+        self._remove_job_files(job_id)
+
+    def delete_job(self, job_id: str) -> None:
+        self.job_dir(job_id)
+        with self._write_lock, self._connect() as connection:
+            cursor = connection.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+            if cursor.rowcount != 1:
+                raise JobNotFoundError(job_id)
+        self._remove_job_files(job_id)
 
     def list_jobs(self) -> list[Job]:
         with self._connect() as connection:
@@ -197,10 +201,7 @@ class Storage:
         job_dir = self.job_dir(job_id)
         if not job_dir.exists():
             return
-        for child in job_dir.iterdir():
-            if child.is_file():
-                child.unlink()
-        job_dir.rmdir()
+        shutil.rmtree(job_dir)
 
     @staticmethod
     def _row_to_stored_job(row: sqlite3.Row) -> StoredJob:

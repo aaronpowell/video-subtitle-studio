@@ -148,6 +148,41 @@ def test_failed_processing_is_visible_through_api(tmp_path: Path) -> None:
         assert client.get(f"/api/jobs/{job['id']}/captions").status_code == 409
 
 
+def test_delete_completed_project_removes_job_and_files(tmp_path: Path) -> None:
+    with client_for(tmp_path, ApiProcessor()) as client:
+        response = upload(client)
+        job = wait_for_terminal_status(client, response.json()["id"])
+        job_dir = tmp_path / "jobs" / job["id"]
+        assert job_dir.exists()
+
+        deleted = client.delete(f"/api/jobs/{job['id']}")
+
+        assert deleted.status_code == 204
+        assert client.get(f"/api/jobs/{job['id']}").status_code == 404
+        assert client.get(f"/api/jobs/{job['id']}/media").status_code == 404
+        assert client.get("/api/jobs").json() == []
+        assert not job_dir.exists()
+
+
+def test_delete_rejects_active_project(tmp_path: Path) -> None:
+    with client_for(tmp_path, ApiProcessor()) as client:
+        job = client.app.state.storage.create_job("active.mp4", "en")
+        client.app.state.storage.finalize_upload(job.id)
+        client.app.state.storage.set_status(job.id, JobStatus.TRANSCRIBING)
+
+        response = client.delete(f"/api/jobs/{job.id}")
+
+        assert response.status_code == 409
+        assert client.get(f"/api/jobs/{job.id}").status_code == 200
+
+
+def test_delete_missing_project_returns_not_found(tmp_path: Path) -> None:
+    with client_for(tmp_path, ApiProcessor()) as client:
+        response = client.delete("/api/jobs/00000000-0000-0000-0000-000000000000")
+
+        assert response.status_code == 404
+
+
 def test_health_and_missing_job(tmp_path: Path) -> None:
     with client_for(tmp_path, ApiProcessor()) as client:
         assert client.get("/health").json() == {"status": "ok"}

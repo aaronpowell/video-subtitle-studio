@@ -237,6 +237,13 @@ button:focus-visible,
 
 .job {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 0.45rem;
+}
+
+.job-open {
+  display: grid;
   justify-items: start;
   gap: 0.25rem;
   width: 100%;
@@ -246,9 +253,14 @@ button:focus-visible,
   text-align: left;
 }
 
-.job.selected {
+.job.selected .job-open {
   border-color: var(--accent);
   background: var(--accent-dark);
+}
+
+.delete-job {
+  min-height: auto;
+  padding-inline: 0.7rem;
 }
 
 .job-name {
@@ -378,4 +390,3 @@ td:last-child {
     flex-direction: column;
   }
 }
-

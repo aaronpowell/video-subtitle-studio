@@ -91,11 +91,14 @@
     </main>
 
     <template id="job-template">
-      <button class="job" type="button">
-        <span class="job-name"></span>
-        <span class="job-status"></span>
-        <span class="job-error"></span>
-      </button>
+      <div class="job">
+        <button class="job-open" type="button">
+          <span class="job-name"></span>
+          <span class="job-status"></span>
+          <span class="job-error"></span>
+        </button>
+        <button class="delete-job danger" type="button" aria-label="Delete project">Delete</button>
+      </div>
     </template>
 
     <template id="caption-template">
@@ -110,4 +113,3 @@
     <script src="/static/app.js" defer></script>
   </body>
 </html>
-
