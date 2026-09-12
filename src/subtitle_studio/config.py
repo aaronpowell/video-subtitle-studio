@@ -1,7 +1,6 @@
 from pathlib import Path
-from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,9 +14,16 @@ class Settings(BaseSettings):
     moonshine_language: str = Field(default="en", min_length=2, max_length=16)
     moonshine_model_arch: str | None = None
     transcription_chunk_seconds: float = Field(default=0.1, ge=0.02, le=2.0)
-    ebu_frame_rate: Literal[25, 30] = 25
+    ebu_frame_rate: int = 25
     ebu_chars_per_line: int = Field(default=40, ge=10, le=80)
     ebu_max_lines: int = Field(default=2, ge=1, le=23)
+
+    @field_validator("ebu_frame_rate")
+    @classmethod
+    def validate_ebu_frame_rate(cls, value: int) -> int:
+        if value not in {25, 30}:
+            raise ValueError("EBU STL export supports 25 or 30 fps")
+        return value
 
     @property
     def max_upload_bytes(self) -> int:
