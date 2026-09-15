@@ -1,0 +1,10 @@
+scripts:
+  - name: Setup
+    command: python scripts/run_app.py --setup-only
+    triggers:
+      - session.create
+  - name: Run
+    command: python scripts/run_app.py
+
+server_ready_pattern: 'Uvicorn running on http://\S+:(\d+)'
+auto_open_in_browser: true

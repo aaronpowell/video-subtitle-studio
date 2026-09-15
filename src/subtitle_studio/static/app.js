@@ -21,6 +21,13 @@ const elements = {
   downloadStl: document.querySelector("#download-stl"),
   jobTemplate: document.querySelector("#job-template"),
   captionTemplate: document.querySelector("#caption-template"),
+  activeCuePreview: document.querySelector("#active-cue-preview"),
+  prepareStyle: document.querySelector("#prepare-style"),
+  prepareWordsPerBlock: document.querySelector("#prepare-words-per-block"),
+  prepareRemovePunctuation: document.querySelector("#prepare-remove-punctuation"),
+  prepareCasing: document.querySelector("#prepare-casing"),
+  prepareApply: document.querySelector("#prepare-apply"),
+  prepareMessage: document.querySelector("#prepare-message"),
 };
 
 let jobs = [];
@@ -29,6 +36,8 @@ let currentProject = null;
 let previewTrack = null;
 let projectRequestVersion = 0;
 let dragDepth = 0;
+let reformatPresets = {};
+let activeCueId = null;
 
 async function api(path, options = {}) {
   const response = await fetch(path, options);
@@ -145,6 +154,7 @@ async function loadProject(jobId) {
     elements.downloadSrt.href = `/api/jobs/${jobId}/export.srt`;
     elements.downloadVtt.href = `/api/jobs/${jobId}/export.vtt`;
     elements.downloadStl.href = `/api/jobs/${jobId}/export.stl`;
+    activeCueId = null;
     renderCaptions();
     setMessage(elements.editorMessage, "");
   } catch (error) {
@@ -209,6 +219,150 @@ function updatePreviewTrack(cues) {
   });
   previewTrack.mode = "showing";
 }
+
+// Mirrors the server's estimate_word_timings(): the transcriber only gives
+// phrase-level timing, so per-word timing is approximated proportionally to
+// each word's character length.
+function estimateWordTimings(text, startMs, endMs) {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return [];
+  }
+  const duration = endMs - startMs;
+  const weights = words.map((word) => word.length);
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || words.length;
+  let cursor = startMs;
+  let cumulative = 0;
+  return words.map((word, index) => {
+    cumulative += (weights[index] / totalWeight) * duration;
+    let wordEnd = index === words.length - 1 ? endMs : startMs + Math.round(cumulative);
+    wordEnd = Math.max(wordEnd, cursor + 1);
+    const timing = { word, start_ms: cursor, end_ms: wordEnd };
+    cursor = wordEnd;
+    return timing;
+  });
+}
+
+function renderActiveCuePreview(cue, activeWordIndex) {
+  elements.activeCuePreview.replaceChildren();
+  if (!cue) {
+    return;
+  }
+  const timings = estimateWordTimings(cue.text, cue.start_ms, cue.end_ms);
+  timings.forEach((timing, index) => {
+    const span = document.createElement("button");
+    span.type = "button";
+    span.className = "word";
+    span.classList.toggle("active", index === activeWordIndex);
+    span.textContent = timing.word;
+    span.addEventListener("click", () => jumpToWord(cue, timing));
+    elements.activeCuePreview.append(span);
+  });
+}
+
+function jumpToWord(cue, timing) {
+  elements.preview.currentTime = timing.start_ms / 1000;
+  const row = elements.captionRows.querySelector(`tr[data-cue-id="${CSS.escape(cue.id)}"]`);
+  const textarea = row?.querySelector(".cue-text");
+  if (!textarea) {
+    return;
+  }
+  textarea.focus();
+  const offset = cue.text.indexOf(timing.word);
+  if (offset >= 0) {
+    textarea.setSelectionRange(offset, offset + timing.word.length);
+  }
+}
+
+function syncActiveCaption() {
+  if (!currentProject) {
+    return;
+  }
+  const currentMs = elements.preview.currentTime * 1000;
+  const cues = readCues();
+  const active = cues.find((cue) => currentMs >= cue.start_ms && currentMs < cue.end_ms);
+  elements.captionRows.querySelectorAll("tr").forEach((row) => {
+    row.classList.toggle("active-row", active !== undefined && row.dataset.cueId === active.id);
+  });
+  if (active && active.id !== activeCueId) {
+    elements.captionRows
+      .querySelector(`tr[data-cue-id="${CSS.escape(active.id)}"]`)
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+  activeCueId = active?.id ?? null;
+  if (!active) {
+    renderActiveCuePreview(null, -1);
+    return;
+  }
+  const timings = estimateWordTimings(active.text, active.start_ms, active.end_ms);
+  const activeWordIndex = timings.findIndex(
+    (timing) => currentMs >= timing.start_ms && currentMs < timing.end_ms,
+  );
+  renderActiveCuePreview(active, activeWordIndex);
+}
+
+async function loadReformatPresets() {
+  try {
+    const response = await api("/api/reformat-presets");
+    reformatPresets = await response.json();
+  } catch {
+    reformatPresets = {};
+  }
+}
+
+function applyPresetToFields(style) {
+  const preset = reformatPresets[style];
+  if (!preset) {
+    return;
+  }
+  elements.prepareWordsPerBlock.value = preset.words_per_block ?? "";
+  elements.prepareRemovePunctuation.checked = Boolean(preset.remove_punctuation);
+  elements.prepareCasing.value = preset.casing ?? "default";
+}
+
+async function applyPrepareSettings() {
+  if (!currentProject) {
+    return;
+  }
+  const jobId = currentProject.job_id;
+  const wordsPerBlockRaw = elements.prepareWordsPerBlock.value.trim();
+  const body = {
+    words_per_block: wordsPerBlockRaw ? Number(wordsPerBlockRaw) : null,
+    remove_punctuation: elements.prepareRemovePunctuation.checked,
+    casing: elements.prepareCasing.value,
+  };
+  elements.prepareApply.disabled = true;
+  setMessage(elements.prepareMessage, "Applying...");
+  try {
+    const response = await api(`/api/jobs/${jobId}/reformat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const project = await response.json();
+    if (selectedJobId !== jobId) {
+      return;
+    }
+    currentProject = project;
+    renderCaptions();
+    setMessage(
+      elements.prepareMessage,
+      "Caption blocks updated. Review below, then Save changes to keep them.",
+    );
+  } catch (error) {
+    setMessage(elements.prepareMessage, error.message, true);
+  } finally {
+    elements.prepareApply.disabled = false;
+  }
+}
+
+elements.prepareStyle.addEventListener("change", () => {
+  if (elements.prepareStyle.value) {
+    applyPresetToFields(elements.prepareStyle.value);
+  }
+});
+elements.prepareApply.addEventListener("click", applyPrepareSettings);
+elements.preview.addEventListener("timeupdate", syncActiveCaption);
 
 function addCaption() {
   const existing = readCues();
@@ -361,4 +515,5 @@ document.addEventListener("drop", (event) => {
 
 checkHealth();
 loadJobs();
+loadReformatPresets();
 setInterval(loadJobs, 2500);

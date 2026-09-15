@@ -58,6 +58,14 @@ pytest
 
 Tests use fake processors and do not download a speech model.
 
+The GitHub Copilot app configuration uses `scripts/run_app.py` to create an
+isolated `.venv`, install the application and test dependencies, and run the
+development server. You can use the same bootstrap locally:
+
+```bash
+python scripts/run_app.py
+```
+
 ## Configuration
 
 Settings use the `VSS_` environment prefix.
