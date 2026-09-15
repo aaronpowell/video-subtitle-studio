@@ -11,8 +11,22 @@ from pydantic import ValidationError
 from . import __version__
 from .config import Settings
 from .exporters import export_ebu_stl, export_srt, export_webvtt
-from .models import CaptionProject, CaptionUpdate, Job, JobStatus, utc_now
-from .processing import JobProcessor, MediaProcessor
+from .models import (
+    CaptionProject,
+    CaptionUpdate,
+    Job,
+    JobStatus,
+    ReformatRequest,
+    VideoStyle,
+    utc_now,
+)
+from .processing import (
+    REFORMAT_PRESETS,
+    JobProcessor,
+    MediaProcessor,
+    reformat_cues,
+    resolve_reformat_settings,
+)
 from .storage import JobNotFoundError, ProjectNotReadyError, Storage
 from .transcription import MoonshineTranscriber
 from .worker import JobWorker
@@ -234,6 +248,42 @@ def create_app(
             raise HTTPException(status_code=409, detail="Captions are not ready") from error
         values = project.model_dump()
         values.update({"cues": update.cues, "updated_at": utc_now()})
+        try:
+            updated = CaptionProject.model_validate(values)
+        except ValidationError as error:
+            detail = error.errors(
+                include_url=False,
+                include_context=False,
+                include_input=False,
+            )
+            raise HTTPException(status_code=422, detail=detail) from error
+        storage.save_project(updated)
+        return updated
+
+    @app.get("/api/reformat-presets", response_model=dict[VideoStyle, ReformatRequest])
+    def get_reformat_presets() -> dict[VideoStyle, ReformatRequest]:
+        return {
+            style: ReformatRequest(
+                style=style,
+                words_per_block=preset.words_per_block,
+                remove_punctuation=preset.remove_punctuation,
+                casing=preset.casing,
+            )
+            for style, preset in REFORMAT_PRESETS.items()
+        }
+
+    @app.post("/api/jobs/{job_id}/reformat", response_model=CaptionProject)
+    def reformat_captions(job_id: str, request: ReformatRequest) -> CaptionProject:
+        try:
+            project = storage.get_project(job_id)
+        except JobNotFoundError as error:
+            raise HTTPException(status_code=404, detail="Job not found") from error
+        except ProjectNotReadyError as error:
+            raise HTTPException(status_code=409, detail="Captions are not ready") from error
+        settings_to_apply = resolve_reformat_settings(request)
+        new_cues = reformat_cues(project.cues, settings_to_apply)
+        values = project.model_dump()
+        values.update({"cues": new_cues, "updated_at": utc_now()})
         try:
             updated = CaptionProject.model_validate(values)
         except ValidationError as error:

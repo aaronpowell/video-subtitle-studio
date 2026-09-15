@@ -187,3 +187,55 @@ def test_health_and_missing_job(tmp_path: Path) -> None:
     with client_for(tmp_path, ApiProcessor()) as client:
         assert client.get("/health").json() == {"status": "ok"}
         assert client.get("/api/jobs/not-a-job").status_code == 404
+
+
+def test_reformat_presets_endpoint_exposes_style_defaults(tmp_path: Path) -> None:
+    with client_for(tmp_path, ApiProcessor()) as client:
+        response = client.get("/api/reformat-presets")
+        assert response.status_code == 200
+        presets = response.json()
+        assert presets["vertical"]["words_per_block"] == 2
+        assert presets["vertical"]["remove_punctuation"] is True
+        assert presets["landscape"]["words_per_block"] is None
+
+
+def test_reformat_applies_preset_and_persists_new_cues(tmp_path: Path) -> None:
+    with client_for(tmp_path, ApiProcessor()) as client:
+        created = upload(client).json()
+        wait_for_terminal_status(client, created["id"])
+
+        response = client.post(
+            f"/api/jobs/{created['id']}/reformat",
+            json={"style": "vertical"},
+        )
+
+        assert response.status_code == 200
+        project = response.json()
+        assert all(len(cue["text"].split()) <= 2 for cue in project["cues"])
+
+        persisted = client.get(f"/api/jobs/{created['id']}/captions").json()
+        assert persisted["cues"] == project["cues"]
+
+
+def test_reformat_overrides_take_precedence_over_style(tmp_path: Path) -> None:
+    with client_for(tmp_path, ApiProcessor()) as client:
+        created = upload(client).json()
+        wait_for_terminal_status(client, created["id"])
+
+        response = client.post(
+            f"/api/jobs/{created['id']}/reformat",
+            json={"style": "vertical", "remove_punctuation": False, "casing": "upper"},
+        )
+
+        assert response.status_code == 200
+        project = response.json()
+        assert project["cues"][0]["text"] == project["cues"][0]["text"].upper()
+
+
+def test_reformat_missing_job_returns_not_found(tmp_path: Path) -> None:
+    with client_for(tmp_path, ApiProcessor()) as client:
+        response = client.post(
+            "/api/jobs/00000000-0000-0000-0000-000000000000/reformat",
+            json={"style": "square"},
+        )
+        assert response.status_code == 404

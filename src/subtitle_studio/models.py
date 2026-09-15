@@ -65,6 +65,35 @@ class CaptionUpdate(BaseModel):
     cues: list[CaptionCue] = Field(max_length=10000)
 
 
+class WordCasing(StrEnum):
+    DEFAULT = "default"
+    UPPER = "upper"
+    LOWER = "lower"
+
+
+class VideoStyle(StrEnum):
+    LANDSCAPE = "landscape"
+    SQUARE = "square"
+    VERTICAL = "vertical"
+
+
+class ReformatSettings(BaseModel):
+    """Settings that control how transcript text is regrouped into caption blocks."""
+
+    words_per_block: int | None = Field(default=None, ge=1, le=20)
+    remove_punctuation: bool = False
+    casing: WordCasing = WordCasing.DEFAULT
+
+
+class ReformatRequest(BaseModel):
+    """Request body for POST .../reformat: an optional preset plus explicit overrides."""
+
+    style: VideoStyle | None = None
+    words_per_block: int | None = Field(default=None, ge=1, le=20)
+    remove_punctuation: bool | None = None
+    casing: WordCasing | None = None
+
+
 class Job(BaseModel):
     id: str
     source_filename: str

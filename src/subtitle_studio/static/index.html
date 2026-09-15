@@ -65,6 +65,46 @@
 
           <video id="preview" controls preload="metadata"></video>
 
+          <div id="active-cue-preview" class="active-cue-preview" aria-live="off"></div>
+
+          <section class="prepare-panel" aria-labelledby="prepare-title">
+            <div class="panel-heading">
+              <h3 id="prepare-title">Prepare to generate</h3>
+            </div>
+            <p class="prepare-hint">
+              Choose a video style for sensible defaults, then fine-tune before applying to the caption blocks below.
+            </p>
+            <div class="prepare-fields">
+              <label>
+                Video style
+                <select id="prepare-style">
+                  <option value="">Custom (no preset)</option>
+                  <option value="landscape">Landscape (16:9)</option>
+                  <option value="square">Square (1:1)</option>
+                  <option value="vertical">Vertical (9:16)</option>
+                </select>
+              </label>
+              <label>
+                Words per block
+                <input id="prepare-words-per-block" type="number" min="1" max="20" placeholder="No limit">
+              </label>
+              <label class="prepare-checkbox">
+                <input id="prepare-remove-punctuation" type="checkbox">
+                Remove punctuation
+              </label>
+              <label>
+                Word casing
+                <select id="prepare-casing">
+                  <option value="default">Default</option>
+                  <option value="upper">UPPERCASE</option>
+                  <option value="lower">lowercase</option>
+                </select>
+              </label>
+              <button id="prepare-apply" class="secondary" type="button">Apply to captions</button>
+            </div>
+            <p id="prepare-message" class="message" role="status"></p>
+          </section>
+
           <div class="caption-toolbar">
             <p id="caption-count"></p>
             <div>
