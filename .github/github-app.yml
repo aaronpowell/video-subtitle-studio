@@ -1,10 +1,10 @@
 scripts:
   - name: Setup
-    command: python -m pip install -e ".[test]"
+    command: python scripts/run_app.py --setup-only
     triggers:
       - session.create
   - name: Run
-    command: uvicorn subtitle_studio.api:app --app-dir src --reload --host 0.0.0.0 --port 8000
+    command: python scripts/run_app.py
 
-server_ready_pattern: 'Uvicorn running on (\S+)'
+server_ready_pattern: 'Uvicorn running on http://\S+:(\d+)'
 auto_open_in_browser: true
