@@ -284,11 +284,6 @@ function syncActiveCaption() {
   elements.captionRows.querySelectorAll("tr").forEach((row) => {
     row.classList.toggle("active-row", active !== undefined && row.dataset.cueId === active.id);
   });
-  if (active && active.id !== activeCueId) {
-    elements.captionRows
-      .querySelector(`tr[data-cue-id="${CSS.escape(active.id)}"]`)
-      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }
   activeCueId = active?.id ?? null;
   if (!active) {
     renderActiveCuePreview(null, -1);
