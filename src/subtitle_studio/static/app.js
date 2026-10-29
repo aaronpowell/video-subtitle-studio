@@ -1,6 +1,6 @@
 const elements = {
   uploadForm: document.querySelector("#upload-form"),
-  videoFile: document.querySelector("#video-file"),
+  mediaFile: document.querySelector("#media-file"),
   language: document.querySelector("#language"),
   uploadMessage: document.querySelector("#upload-message"),
   jobs: document.querySelector("#jobs"),
@@ -11,6 +11,8 @@ const elements = {
   projectTitle: document.querySelector("#project-title"),
   projectLanguage: document.querySelector("#project-language"),
   preview: document.querySelector("#preview"),
+  videoPreview: document.querySelector("#preview"),
+  audioPreview: document.querySelector("#audio-preview"),
   captionRows: document.querySelector("#caption-rows"),
   captionCount: document.querySelector("#caption-count"),
   editorMessage: document.querySelector("#editor-message"),
@@ -106,11 +108,12 @@ async function loadJobs() {
         selectedJobId = null;
         currentProject = null;
         projectRequestVersion += 1;
+        clearPreview();
         elements.editor.hidden = true;
         elements.emptyState.hidden = false;
         elements.emptyState.querySelector("h2").textContent = "Select a completed project";
         elements.emptyState.querySelector("p").textContent =
-          "The video preview and caption editor will appear here.";
+          "The media preview and caption editor will appear here.";
         renderJobs();
       }
     }
@@ -124,6 +127,7 @@ async function selectJob(job) {
   selectedJobId = job.id;
   currentProject = null;
   projectRequestVersion += 1;
+  clearPreview();
   renderJobs();
   if (job.status !== "completed") {
     elements.editor.hidden = true;
@@ -150,6 +154,11 @@ async function loadProject(jobId) {
     elements.editor.hidden = false;
     elements.projectTitle.textContent = currentProject.source_filename;
     elements.projectLanguage.textContent = `Language: ${currentProject.language}`;
+    const isAudio = /\.(wav|mp3)$/i.test(currentProject.source_filename);
+    clearPreview();
+    elements.videoPreview.hidden = isAudio;
+    elements.audioPreview.hidden = !isAudio;
+    elements.preview = isAudio ? elements.audioPreview : elements.videoPreview;
     elements.preview.src = `/api/jobs/${jobId}/media`;
     elements.downloadSrt.href = `/api/jobs/${jobId}/export.srt`;
     elements.downloadVtt.href = `/api/jobs/${jobId}/export.vtt`;
@@ -160,6 +169,19 @@ async function loadProject(jobId) {
   } catch (error) {
     setMessage(elements.editorMessage, error.message, true);
   }
+}
+
+function clearPreview() {
+  for (const media of [elements.videoPreview, elements.audioPreview]) {
+    media.pause();
+    media.removeAttribute("src");
+    media.load();
+  }
+  if (previewTrack) {
+    previewTrack.mode = "disabled";
+  }
+  previewTrack = null;
+  elements.activeCuePreview.replaceChildren();
 }
 
 function renderCaptions() {
@@ -211,13 +233,15 @@ function updatePreviewFromEditor() {
 
 function updatePreviewTrack(cues) {
   if (!previewTrack) {
-    previewTrack = elements.preview.addTextTrack("captions", "Edited captions", currentProject.language);
+    previewTrack = elements.preview.textTracks[0] ||
+      elements.preview.addTextTrack("captions", "Edited captions", currentProject.language);
   }
+  previewTrack.mode = elements.preview === elements.audioPreview ? "hidden" : "showing";
   [...previewTrack.cues].forEach((cue) => previewTrack.removeCue(cue));
   cues.forEach((cue) => {
     previewTrack.addCue(new VTTCue(cue.start_ms / 1000, cue.end_ms / 1000, cue.text));
   });
-  previewTrack.mode = "showing";
+  syncActiveCaption();
 }
 
 // Mirrors the server's estimate_word_timings(): the transcriber only gives
@@ -358,6 +382,7 @@ elements.prepareStyle.addEventListener("change", () => {
 });
 elements.prepareApply.addEventListener("click", applyPrepareSettings);
 elements.preview.addEventListener("timeupdate", syncActiveCaption);
+elements.audioPreview.addEventListener("timeupdate", syncActiveCaption);
 
 function addCaption() {
   const existing = readCues();
@@ -415,12 +440,12 @@ async function deleteJob(job) {
       selectedJobId = null;
       currentProject = null;
       projectRequestVersion += 1;
-      elements.preview.removeAttribute("src");
+      clearPreview();
       elements.editor.hidden = true;
       elements.emptyState.hidden = false;
       elements.emptyState.querySelector("h2").textContent = "Project deleted";
       elements.emptyState.querySelector("p").textContent =
-        "Select another completed project or upload a new MP4.";
+        "Select another completed project or upload a new MP4, WAV, or MP3.";
     }
     setMessage(elements.uploadMessage, "Project deleted.");
     await loadJobs();
@@ -431,7 +456,7 @@ async function deleteJob(job) {
 
 elements.uploadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const file = elements.videoFile.files[0];
+  const file = elements.mediaFile.files[0];
   if (!file) {
     return;
   }
@@ -460,8 +485,8 @@ elements.refreshJobs.addEventListener("click", loadJobs);
 elements.saveCaptions.addEventListener("click", saveCaptions);
 elements.addCaption.addEventListener("click", addCaption);
 
-function isMp4(file) {
-  return file && (file.name.toLowerCase().endsWith(".mp4") || file.type === "video/mp4");
+function isSupportedMedia(file) {
+  return file && /\.(mp4|wav|mp3)$/i.test(file.name);
 }
 
 function setDragActive(active) {
@@ -497,13 +522,13 @@ document.addEventListener("drop", (event) => {
   if (!file) {
     return;
   }
-  if (!isMp4(file)) {
-    setMessage(elements.uploadMessage, "Drop an MP4 video file.", true);
+  if (!isSupportedMedia(file)) {
+    setMessage(elements.uploadMessage, "Drop an MP4 video, WAV, or MP3 audio file.", true);
     return;
   }
   const transfer = new DataTransfer();
   transfer.items.add(file);
-  elements.videoFile.files = transfer.files;
+  elements.mediaFile.files = transfer.files;
   setMessage(elements.uploadMessage, `${file.name} selected. Uploading...`);
   elements.uploadForm.requestSubmit();
 });

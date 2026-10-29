@@ -33,6 +33,31 @@ from .worker import JobWorker
 
 CHUNK_SIZE = 1024 * 1024
 SAFE_STEM = re.compile(r"[^A-Za-z0-9._-]+")
+MEDIA_CONTENT_TYPES = {
+    ".mp4": ("video/mp4", "application/mp4"),
+    ".wav": ("audio/wav", "audio/wave", "audio/x-wav", "audio/vnd.wave"),
+    ".mp3": ("audio/mpeg", "audio/mp3", "audio/x-mp3"),
+}
+
+
+def _matches_media_header(extension: str, header: bytes) -> bool:
+    if extension == ".mp4":
+        return b"ftyp" in header[4:12]
+    if extension == ".wav":
+        return header[:4] == b"RIFF" and header[8:12] == b"WAVE"
+    if extension == ".mp3":
+        if header[:3] == b"ID3":
+            return True
+        # MPEG audio frame sync, valid version, Layer III, bitrate and sample rate.
+        return (
+            header[0] == 0xFF
+            and header[1] & 0xE0 == 0xE0
+            and header[1] & 0x18 != 0x08
+            and header[1] & 0x06 == 0x02
+            and header[2] & 0xF0 not in {0x00, 0xF0}
+            and header[2] & 0x0C != 0x0C
+        )
+    return False
 
 
 class RequestBodyLimitMiddleware:
@@ -169,10 +194,17 @@ def create_app(
         original_name = Path(file.filename or "").name
         if not original_name or original_name != file.filename:
             raise HTTPException(status_code=400, detail="A safe filename is required")
-        if Path(original_name).suffix.lower() != ".mp4":
-            raise HTTPException(status_code=415, detail="Only .mp4 uploads are supported")
-        if file.content_type not in {"video/mp4", "application/mp4", "application/octet-stream"}:
-            raise HTTPException(status_code=415, detail="Upload must use an MP4 content type")
+        extension = Path(original_name).suffix.lower()
+        if extension not in MEDIA_CONTENT_TYPES:
+            raise HTTPException(
+                status_code=415, detail="Only .mp4, .wav, and .mp3 uploads are supported"
+            )
+        if file.content_type not in {
+            *MEDIA_CONTENT_TYPES[extension], "application/octet-stream"
+        }:
+            raise HTTPException(
+                status_code=415, detail="Content type does not match the file extension"
+            )
         selected_language = (language or settings.moonshine_language).strip().lower()
         if not re.fullmatch(r"[a-z]{2,3}(?:_[a-z]{2})?", selected_language):
             raise HTTPException(status_code=400, detail="Invalid language code")
@@ -193,8 +225,11 @@ def create_app(
                 raise HTTPException(status_code=400, detail="Upload is empty or invalid")
             with job.source_path.open("rb") as source:
                 header = source.read(12)
-            if b"ftyp" not in header[4:12]:
-                raise HTTPException(status_code=415, detail="Upload is not an MP4 file")
+            if not _matches_media_header(extension, header):
+                raise HTTPException(
+                    status_code=415,
+                    detail=f"Upload is not a valid {extension[1:].upper()} file",
+                )
             storage.finalize_upload(job.id)
         except Exception:
             storage.delete_unfinished_job(job.id)
@@ -306,8 +341,10 @@ def create_app(
             raise HTTPException(status_code=404, detail="Media not found")
         return FileResponse(
             job.source_path,
-            media_type="video/mp4",
-            filename=_download_name(job.source_filename, "mp4"),
+            media_type=MEDIA_CONTENT_TYPES[job.source_path.suffix.lower()][0],
+            filename=_download_name(
+                job.source_filename, job.source_path.suffix.lower()[1:]
+            ),
         )
 
     def completed_project(job_id: str) -> CaptionProject:

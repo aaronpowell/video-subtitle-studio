@@ -36,7 +36,7 @@ body.drag-active::after {
   border-radius: 1rem;
   color: var(--accent);
   background: rgb(11 16 24 / 88%);
-  content: "Drop MP4 anywhere to upload";
+  content: "Drop MP4, WAV, or MP3 anywhere to upload";
   font-size: clamp(1.2rem, 3vw, 2rem);
   font-weight: 800;
   pointer-events: none;
@@ -333,7 +333,8 @@ button:focus-visible,
   gap: 0.5rem;
 }
 
-video {
+video:not([hidden]),
+audio:not([hidden]) {
   display: block;
   width: 100%;
   max-height: 60vh;

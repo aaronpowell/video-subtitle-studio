@@ -1,6 +1,9 @@
+import io
 import time
+import wave
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from subtitle_studio.api import create_app
@@ -9,6 +12,21 @@ from subtitle_studio.models import CaptionCue, CaptionProject, JobStatus
 
 
 MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2"
+MP3 = b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\xff\xfb\x90\x00" + b"\x00" * 413
+MP3_WITHOUT_ID3 = MP3[10:]
+
+
+def wav_bytes() -> bytes:
+    output = io.BytesIO()
+    with wave.open(output, "wb") as audio:
+        audio.setnchannels(2)
+        audio.setsampwidth(2)
+        audio.setframerate(44100)
+        audio.writeframes(b"\x00" * 44100 * 4)
+    return output.getvalue()
+
+
+WAV = wav_bytes()
 
 
 class ApiProcessor:
@@ -56,12 +74,30 @@ def wait_for_terminal_status(client: TestClient, job_id: str) -> dict:
     raise AssertionError("job did not reach a terminal status")
 
 
-def test_upload_edit_preview_and_exports(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("filename", "body", "content_type"),
+    [
+        ("sample.mp4", MP4, "video/mp4"),
+        ("sample.wav", WAV, "audio/wav"),
+        ("sample.mp3", MP3, "audio/mpeg"),
+        ("frames.MP3", MP3_WITHOUT_ID3, "audio/mpeg"),
+    ],
+    ids=["mp4", "wav", "mp3-id3", "mp3-frames"],
+)
+def test_upload_edit_preview_and_exports(
+    tmp_path: Path, filename: str, body: bytes, content_type: str
+) -> None:
     with client_for(tmp_path, ApiProcessor()) as client:
-        response = upload(client)
+        response = client.post(
+            "/api/jobs", files={"file": (filename, body, content_type)}
+        )
         assert response.status_code == 202
         job = wait_for_terminal_status(client, response.json()["id"])
         assert job["status"] == "completed"
+        assert job["source_filename"] == filename
+        stored_job = client.app.state.storage.get_job(job["id"])
+        assert stored_job.source_path.name == f"source{Path(filename).suffix.lower()}"
+        assert stored_job.source_path.read_bytes() == body
 
         captions_url = f"/api/jobs/{job['id']}/captions"
         project = client.get(captions_url)
@@ -88,7 +124,15 @@ def test_upload_edit_preview_and_exports(tmp_path: Path) -> None:
         assert stl.status_code == 200
         assert stl.content.startswith(b"850STL25.01")
         assert len(stl.content) == 1152
-        assert client.get(f"/api/jobs/{job['id']}/media").content == MP4
+        media = client.get(f"/api/jobs/{job['id']}/media")
+        assert media.content == body
+        assert media.headers["content-type"] == content_type
+        assert Path(filename).suffix.lower() in media.headers["content-disposition"]
+        ranged = client.get(
+            f"/api/jobs/{job['id']}/media", headers={"Range": "bytes=0-11"}
+        )
+        assert ranged.status_code == 206
+        assert ranged.content == body[:12]
 
 
 def test_api_rejects_overlapping_edits(tmp_path: Path) -> None:
@@ -107,7 +151,7 @@ def test_api_rejects_overlapping_edits(tmp_path: Path) -> None:
         assert response.status_code == 422
 
 
-def test_upload_validation_rejects_unsafe_or_non_mp4_files(tmp_path: Path) -> None:
+def test_upload_validation_rejects_unsafe_or_unsupported_files(tmp_path: Path) -> None:
     with client_for(tmp_path, ApiProcessor()) as client:
         unsafe = upload(client, "../escape.mp4")
         assert unsafe.status_code == 400
@@ -121,6 +165,85 @@ def test_upload_validation_rejects_unsafe_or_non_mp4_files(tmp_path: Path) -> No
             files={"file": ("fake.mp4", b"not an mp4 file", "video/mp4")},
         )
         assert fake.status_code == 415
+
+
+@pytest.mark.parametrize(
+    ("filename", "body", "content_type"),
+    [
+        ("sample.WAV", WAV, "audio/x-wav"),
+        ("sample.wav", WAV, "audio/wave"),
+        ("sample.wav", WAV, "audio/vnd.wave"),
+        ("sample.wav", WAV, "application/octet-stream"),
+        ("sample.mp3", MP3, "audio/mp3"),
+        ("sample.mp3", MP3_WITHOUT_ID3, "audio/x-mp3"),
+        ("sample.mp3", MP3, "application/octet-stream"),
+    ],
+    ids=["x-wav", "wave", "vnd-wave", "wav-binary", "mp3", "x-mp3", "mp3-binary"],
+)
+def test_audio_upload_accepts_common_content_types(
+    tmp_path: Path, filename: str, body: bytes, content_type: str
+) -> None:
+    with client_for(tmp_path, ApiProcessor()) as client:
+        response = client.post(
+            "/api/jobs", files={"file": (filename, body, content_type)}
+        )
+        assert response.status_code == 202
+        job = wait_for_terminal_status(client, response.json()["id"])
+        assert job["status"] == "completed"
+
+
+@pytest.mark.parametrize(
+    ("filename", "body", "content_type", "status_code"),
+    [
+        ("fake.wav", b"not a wav file", "audio/wav", 415),
+        ("fake.wav", b"RIFF\x00\x00\x00\x00AVI ", "audio/wav", 415),
+        ("fake.mp3", b"not an mp3 file", "audio/mpeg", 415),
+        ("fake.mp3", b"\xff\xff\xff\xff" * 3, "audio/mpeg", 415),
+        ("fake.mp3", b"\xff\xfb\xfc\x00" * 3, "audio/mpeg", 415),
+        ("fake.mp3", WAV, "audio/mpeg", 415),
+        ("fake.wav", MP3, "audio/wav", 415),
+        ("wrong.wav", WAV, "audio/mpeg", 415),
+        ("wrong.mp3", MP3, "video/mp4", 415),
+        ("empty.wav", b"", "audio/wav", 400),
+        ("short.mp3", b"ID3", "audio/mpeg", 400),
+    ],
+    ids=[
+        "fake-wav", "avi", "fake-mp3", "invalid-frame", "invalid-sample-rate",
+        "wav-as-mp3", "mp3-as-wav", "wav-mime", "mp3-mime", "empty", "truncated",
+    ],
+)
+def test_invalid_audio_upload_leaves_no_job_or_files(
+    tmp_path: Path, filename: str, body: bytes, content_type: str, status_code: int
+) -> None:
+    with client_for(tmp_path, ApiProcessor()) as client:
+        response = client.post(
+            "/api/jobs", files={"file": (filename, body, content_type)}
+        )
+        assert response.status_code == status_code
+        assert client.get("/api/jobs").json() == []
+        assert list((tmp_path / "jobs").iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("filename", "body", "content_type"),
+    [
+        ("large.mp4", MP4, "video/mp4"),
+        ("large.wav", WAV, "audio/wav"),
+        ("large.mp3", MP3, "audio/mpeg"),
+    ],
+    ids=["mp4", "wav", "mp3"],
+)
+def test_audio_and_video_file_size_limits(
+    tmp_path: Path, filename: str, body: bytes, content_type: str
+) -> None:
+    with client_for(tmp_path, ApiProcessor(), max_upload_mb=1) as client:
+        response = client.post(
+            "/api/jobs",
+            files={"file": (filename, body + b"x" * (1024 * 1024), content_type)},
+        )
+        assert response.status_code == 413
+        assert client.get("/api/jobs").json() == []
+        assert list((tmp_path / "jobs").iterdir()) == []
 
 
 def test_request_body_limit_rejects_before_creating_a_job(tmp_path: Path) -> None:

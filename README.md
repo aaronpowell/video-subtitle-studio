@@ -1,7 +1,7 @@
 # Video Subtitle Studio
 
 Video Subtitle Studio is a self-hosted, single-user web application for turning
-MP4 video into editable subtitles. It extracts mono audio with FFmpeg,
+MP4 video and WAV or MP3 audio into editable subtitles. It prepares mono audio with FFmpeg,
 transcribes locally with the current
 [`moonshine-voice`](https://github.com/moonshine-ai/moonshine) streaming API,
 previews synchronized captions in the browser, and exports SRT, WebVTT, and
@@ -12,11 +12,11 @@ call a hosted transcription service.
 
 ## Features
 
-- Validated MP4 upload with configurable size and FFmpeg timeout limits
+- Validated MP4, WAV, and MP3 uploads with configurable size and FFmpeg timeout limits
 - Persistent SQLite job queue and per-project asset directories
 - One background transcription worker, so requests return immediately
 - Explicit queued, extracting, transcribing, completed, and failed states
-- Browser video preview with a live text track generated from edited cues
+- Browser video or audio preview with synchronized editable captions
 - Caption text and millisecond timing editing
 - UTF-8 SRT and WebVTT export
 - Genuine binary EBU Tech 3264 STL export with GSI and TTI blocks
@@ -104,7 +104,7 @@ Project assets are stored under generated UUID directories:
 
 ```text
 <data-dir>/jobs/<job-id>/
-  source.mp4
+  source.mp4 (or source.wav / source.mp3)
   audio.wav
   project.json
 ```
@@ -114,6 +114,12 @@ exporters. It contains ordered, non-overlapping cues with stable IDs, integer
 millisecond start/end times, and text. Interrupted queued or active jobs are
 requeued after restart. Run exactly one Uvicorn worker/process; the MVP queue is
 intentionally single-process and processes one transcription at a time.
+
+Upload MP4, WAV, or MP3 files using the file picker or drag and drop. Audio-only
+projects use an audio player with the same synchronized caption editor and
+SRT, WebVTT, and EBU STL exports. All inputs, including WAV, are converted to
+16 kHz mono PCM for transcription; the original upload is preserved for playback.
+Existing MP4 projects remain compatible without migration.
 
 Back up the data volume to preserve projects. Deleting the volume permanently
 deletes uploaded media and captions.
@@ -129,7 +135,7 @@ word-level precision; review and adjust timings before broadcast delivery.
 
 Decoded WAV data is read and normalized in bounded chunks rather than loaded
 into memory as a complete Python sample list. CPU and memory requirements still
-depend on the chosen model and video duration.
+depend on the chosen model and media duration.
 Expect an initial model download and hundreds of megabytes of persistent cache.
 CPU-only transcription is supported but may be slower than real time on modest
 homelab hardware. Start with Moonshine's default English model, then set
@@ -170,7 +176,8 @@ No authentication is included because this is designed for a trusted,
 single-user homelab network. Do not expose it directly to the public internet;
 put authentication and TLS at a reverse proxy if remote access is required.
 Filenames are reduced to display metadata, storage paths use generated UUIDs,
-uploads are checked for MP4 extension/content type/container signature, and
+uploads are checked for a supported extension, matching content type, and
+MP4/WAV container or MP3 ID3/frame signature, and
 FFmpeg is invoked without a shell. Uploaded media and speech never leave the
 host unless the operator separately copies or backs up the data volume.
 

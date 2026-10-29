@@ -52,7 +52,7 @@ class Storage:
         job_id = str(uuid4())
         job_dir = self.job_dir(job_id)
         job_dir.mkdir(mode=0o750)
-        source_path = job_dir / "source.mp4"
+        source_path = job_dir / f"source{Path(source_filename).suffix.lower()}"
         now = utc_now()
         with self._write_lock, self._connect() as connection:
             connection.execute(

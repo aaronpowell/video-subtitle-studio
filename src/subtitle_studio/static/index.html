@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Local MP4 transcription and broadcast subtitle export">
+    <meta name="description" content="Local video and audio transcription and broadcast subtitle export">
     <title>Video Subtitle Studio</title>
     <link rel="stylesheet" href="/static/styles.css">
   </head>
@@ -20,12 +20,12 @@
       <section class="upload-card" aria-labelledby="upload-title">
         <div>
           <h2 id="upload-title">New transcription</h2>
-          <p>Upload an MP4. Audio extraction and Moonshine transcription continue in the background.</p>
+          <p>Upload an MP4 video, WAV, or MP3 audio file. Audio preparation and Moonshine transcription continue in the background.</p>
         </div>
         <form id="upload-form">
           <label>
-            MP4 video
-            <input id="video-file" name="file" type="file" accept="video/mp4,.mp4" required>
+            Video or audio file
+            <input id="media-file" name="file" type="file" accept="video/mp4,audio/wav,audio/mpeg,.mp4,.wav,.mp3" required>
           </label>
           <label>
             Language
@@ -47,7 +47,7 @@
 
         <section id="empty-state" class="empty-state">
           <h2>Select a completed project</h2>
-          <p>The video preview and caption editor will appear here.</p>
+          <p>The media preview and caption editor will appear here.</p>
         </section>
 
         <section id="editor" class="editor" hidden>
@@ -64,6 +64,7 @@
           </div>
 
           <video id="preview" controls preload="metadata"></video>
+          <audio id="audio-preview" controls preload="metadata" hidden></audio>
 
           <div id="active-cue-preview" class="active-cue-preview" aria-live="off"></div>
 
